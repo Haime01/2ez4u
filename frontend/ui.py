@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import time
 from backend.m1_pesanan import Array, LinkList, Pesanan, baca_csv_pesanan
-
+from backend.m2_antrean import ke_postfix, hitung, NaiveQueue, CircularQueue, UndoRedoManager
 
 class App2EZ4U:
     def __init__(self, root):
@@ -16,6 +16,11 @@ class App2EZ4U:
         self.arr_pesanan = Array()
         self.ll_pesanan = LinkList()
         self.data_termuat = False
+
+        # Backend storage untuk M2
+        self.naive_q = NaiveQueue()
+        self.circ_q = CircularQueue(capacity=100000)
+        self.undo_manager = UndoRedoManager(self.circ_q)
 
         self._buat_layout()
         self._set_mode_default()
@@ -135,6 +140,12 @@ class App2EZ4U:
         self._tombol_sidebar("LINKEDLIST - TAMBAH PESANAN PRIORITAS", lambda: self._tampilkan_form_tambah("LINKEDLIST", 2))
         self._tombol_sidebar("LINKEDLIST - TAMBAH PESANAN VIP", lambda: self._tampilkan_form_tambah("LINKEDLIST", 1))
         self._tombol_sidebar("LINKEDLIST - HAPUS PESANAN", lambda: self._tampilkan_form_hapus("LINKEDLIST"))
+        # Milestone 2: Antrean & Stack
+        lbl_m2 = tk.Label(self.scroll_sidebar, text="M2 - ANTREAN & STACK", font=("Segoe UI", 8, "bold"), fg="#64748b", bg="#f1f5f9")
+        lbl_m2.pack(anchor="w", padx=8, pady=(12, 2))
+        self._tombol_sidebar("MESIN KASIR (POSTFIX)", self._tampilkan_form_kasir)
+        self._tombol_sidebar("BENCHMARK ANTREAN (QUEUE)", self._tampilkan_form_benchmark_queue)
+        self._tombol_sidebar("ANTREAN DAPUR (UNDO/REDO)", self._tampilkan_form_antrean_dapur)
 
     def _catat_log(self, modul, aksi, durasi_ms):
         pesan = f"[{modul}] {aksi:<30} -> Waktu eksekusi: {durasi_ms:.4f} ms\n"
@@ -348,3 +359,145 @@ class App2EZ4U:
             self._catat_log(f"M1:{struktur}", f"Hapus idx {idx}", durasi)
 
         ttk.Button(self.frame_input, text="HAPUS", command=aksi_hapus).pack(anchor="w", pady=4)
+
+    def _bersihkan_form(self):
+        """Membersihkan frame input dan output sebelum membuka form baru."""
+        for widget in self.frame_input.winfo_children():
+            widget.destroy()
+        self.txt_output.delete("1.0", tk.END)
+
+    def _tampilkan_form_kasir(self):
+        self._bersihkan_form()
+
+        lbl_jdl = tk.Label(self.frame_input, text="MESIN KASIR: Evaluasi Struk Belanja (Stack Postfix)", font=("Segoe UI", 9, "bold"))
+        lbl_jdl.pack(anchor="w", pady=(0, 2))
+
+        lbl_sub = tk.Label(self.frame_input, text="Konversi ekspresi infix ke postfix lalu evaluasi nilainya.", font=("Segoe UI", 8), fg="#666")
+        lbl_sub.pack(anchor="w", pady=(0, 6))
+
+        tk.Label(self.frame_input, text="Ekspresi Struk (pisahkan dengan spasi):").pack(anchor="w")
+        ent_ekspresi = ttk.Entry(self.frame_input, width=45)
+        ent_ekspresi.insert(0, "( 3 * 12000 ) + ( 2 * 8500 ) - 5000")
+        ent_ekspresi.pack(anchor="w", pady=3)
+
+        def aksi_hitung():
+            ekspresi = ent_ekspresi.get().strip()
+            t0 = time.perf_counter()
+            try:
+                postfix = ke_postfix(ekspresi)
+                total = hitung(postfix)
+                durasi = (time.perf_counter() - t0) * 1000
+
+                self.txt_output.delete("1.0", tk.END)
+                self.txt_output.insert(tk.END, "=== HASIL EVALUASI STACK POSTFIX ===\n")
+                self.txt_output.insert(tk.END, f"Infix   : {ekspresi}\n")
+                self.txt_output.insert(tk.END, f"Postfix : {' '.join(postfix)}\n")
+                self.txt_output.insert(tk.END, "-" * 40 + "\n")
+                self.txt_output.insert(tk.END, f"Total Pembayaran : Rp {total:,}\n")
+
+                self._catat_log("M2:STACK", "Hitung Postfix", durasi)
+            except Exception as e:
+                messagebox.showerror("Error", f"Perhitungan gagal: {e}")
+
+        ttk.Button(self.frame_input, text="HITUNG", command=aksi_hitung).pack(anchor="w", pady=6)
+
+    def _tampilkan_form_benchmark_queue(self):
+        self._bersihkan_form()
+
+        lbl_jdl = tk.Label(self.frame_input, text="BENCHMARK: Naive Queue vs Circular Queue", font=("Segoe UI", 9, "bold"))
+        lbl_jdl.pack(anchor="w", pady=(0, 2))
+
+        lbl_sub = tk.Label(self.frame_input, text="Membandingkan kompleksitas Dequeue O(N) vs Circular Queue O(1).", font=("Segoe UI", 8), fg="#666")
+        lbl_sub.pack(anchor="w", pady=(0, 6))
+
+        def aksi_benchmark():
+            n = 20000
+            self.txt_output.delete("1.0", tk.END)
+            self.txt_output.insert(tk.END, f"Menyiapkan {n:,} antrean dummy...\n")
+            self.root.update()
+
+            self.naive_q = NaiveQueue()
+            self.circ_q = CircularQueue(capacity=50000)
+            for i in range(n):
+                self.naive_q.enqueue(f"ORD-{i+1}")
+                self.circ_q.enqueue(f"ORD-{i+1}")
+
+            self.txt_output.insert(tk.END, "Menguji Dequeue 100 elemen...\n\n")
+            self.root.update()
+
+            # Benchmark Naive Queue
+            t0 = time.perf_counter()
+            for _ in range(100):
+                self.naive_q.dequeue()
+            t_naive = (time.perf_counter() - t0) * 1000
+
+            # Benchmark Circular Queue
+            t0 = time.perf_counter()
+            for _ in range(100):
+                self.circ_q.dequeue()
+            t_circ = (time.perf_counter() - t0) * 1000
+
+            self.txt_output.insert(tk.END, f"Naive Queue    (pop(0) - O(N)) : {t_naive:.4f} ms\n")
+            self.txt_output.insert(tk.END, f"Circular Queue (Pointer - O(1)): {t_circ:.4f} ms\n")
+            self.txt_output.insert(tk.END, "-" * 40 + "\n")
+            rasio = t_naive / max(t_circ, 1e-6)
+            self.txt_output.insert(tk.END, f"Circular Queue lebih cepat {rasio:.2f}x lipat!\n")
+
+            self._catat_log("M2:QUEUE", "Benchmark Dequeue 100x", t_circ)
+
+        ttk.Button(self.frame_input, text="MULAI BENCHMARK", command=aksi_benchmark).pack(anchor="w", pady=6)
+
+    def _tampilkan_form_antrean_dapur(self):
+        self._bersihkan_form()
+
+        lbl_jdl = tk.Label(self.frame_input, text="ANTREAN DAPUR: Undo & Redo", font=("Segoe UI", 9, "bold"))
+        lbl_jdl.pack(anchor="w", pady=(0, 2))
+
+        lbl_status = tk.Label(self.frame_input, text="", font=("Segoe UI", 8, "bold"))
+        lbl_status.pack(anchor="w", pady=(2, 6))
+
+        def perbarui_view(pesan=""):
+            lbl_status.config(text=f"Antrean: {self.circ_q.size()} | Undo: {self.undo_manager.undo_stack.size()} | Redo: {self.undo_manager.redo_stack.size()}")
+            self.txt_output.delete("1.0", tk.END)
+            if pesan:
+                self.txt_output.insert(tk.END, f"[LOG] {pesan}\n" + "-" * 40 + "\n")
+            self.txt_output.insert(tk.END, f"Pesanan aktif di dapur: {self.circ_q.size()}\n")
+
+        counter = [self.circ_q.size() + 1]
+
+        def on_enqueue():
+            item = f"ORD-{counter[0]:03d}"
+            counter[0] += 1
+            self.circ_q.enqueue(item)
+            self.undo_manager.catat_aksi("ENQUEUE", item)
+            self._catat_log("M2:QUEUE", f"Enqueue {item}", 0.01)
+            perbarui_view(f"Pesanan {item} masuk ke antrean.")
+
+        def on_dequeue():
+            if self.circ_q.is_empty():
+                messagebox.showwarning("Peringatan", "Antrean dapur kosong!")
+                return
+            item = self.circ_q.dequeue()
+            self.undo_manager.catat_aksi("DEQUEUE", [item])
+            self._catat_log("M2:QUEUE", f"Dequeue {item}", 0.01)
+            perbarui_view(f"Pesanan {item} disajikan (Dequeued).")
+
+        def on_undo():
+            sukses, msg = self.undo_manager.undo_last()
+            self._catat_log("M2:STACK", "Undo", 0.01)
+            perbarui_view(msg)
+
+        def on_redo():
+            sukses, msg = self.undo_manager.redo_last()
+            self._catat_log("M2:STACK", "Redo", 0.01)
+            perbarui_view(msg)
+
+        f_tombol = tk.Frame(self.frame_input)
+        f_tombol.pack(anchor="w", pady=4)
+
+        ttk.Button(f_tombol, text="+ Enqueue", command=on_enqueue).pack(side="left", padx=2)
+        ttk.Button(f_tombol, text="Dequeue", command=on_dequeue).pack(side="left", padx=2)
+        ttk.Button(f_tombol, text="Undo", command=on_undo).pack(side="left", padx=2)
+        ttk.Button(f_tombol, text="Redo", command=on_redo).pack(side="left", padx=2)
+
+        perbarui_view()
