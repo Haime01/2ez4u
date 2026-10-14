@@ -4,6 +4,7 @@ from tkinter import ttk, messagebox
 import time
 from backend.m1_pesanan import Array, LinkList, Pesanan, baca_csv_pesanan
 from backend.m2_antrean import ke_postfix, hitung, NaiveQueue, CircularQueue, UndoRedoManager
+from backend.m3_laporan import insertion_sort, merge_sort, linear_search, binary_search
 
 class App2EZ4U:
     def __init__(self, root):
@@ -21,6 +22,9 @@ class App2EZ4U:
         self.naive_q = NaiveQueue()
         self.circ_q = CircularQueue(capacity=100000)
         self.undo_manager = UndoRedoManager(self.circ_q)
+        # Backend storage untuk M3
+        self.cache_terurut_oid = None
+        self.waktu_bangun_oid_ms = 0.0
 
         self._buat_layout()
         self._set_mode_default()
@@ -113,9 +117,9 @@ class App2EZ4U:
         btn = tk.Button(
             self.scroll_sidebar, text=teks, command=perintah,
             anchor="w", bg=bg, fg="#0f172a", font=("Segoe UI", 8, "bold"),
-            relief=tk.FLAT, padx=8, pady=4, cursor="hand2"
+            relief=tk.FLAT, padx=8, pady=1, cursor="hand2"
         )
-        btn.pack(fill=tk.X, padx=6, pady=2)
+        btn.pack(fill=tk.X, padx=6, pady=1)
         return btn
 
     def _isi_menu_sidebar(self):
@@ -146,6 +150,13 @@ class App2EZ4U:
         self._tombol_sidebar("MESIN KASIR (POSTFIX)", self._tampilkan_form_kasir)
         self._tombol_sidebar("BENCHMARK ANTREAN (QUEUE)", self._tampilkan_form_benchmark_queue)
         self._tombol_sidebar("ANTREAN DAPUR (UNDO/REDO)", self._tampilkan_form_antrean_dapur)
+        # Milestone 3: Sort & Search
+        lbl_m3 = tk.Label(self.scroll_sidebar, text="M3 - SORT DAN SEARCH", font=("Segoe UI", 8, "bold"), fg="#64748b", bg="#f1f5f9")
+        lbl_m3.pack(anchor="w", padx=8, pady=(12, 2))
+        self._tombol_sidebar("SORT - INSERTION SORT", lambda: self._tampilkan_form_sort("INSERTION"))
+        self._tombol_sidebar("SORT - MERGE SORT", lambda: self._tampilkan_form_sort("MERGE"))
+        self._tombol_sidebar("SEARCH - LINEAR SEARCH", self._tampilkan_form_linear_search)
+        self._tombol_sidebar("SEARCH - BINARY SEARCH", self._tampilkan_form_binary_search)
 
     def _catat_log(self, modul, aksi, durasi_ms):
         pesan = f"[{modul}] {aksi:<30} -> Waktu eksekusi: {durasi_ms:.4f} ms\n"
@@ -501,3 +512,152 @@ class App2EZ4U:
         ttk.Button(f_tombol, text="Redo", command=on_redo).pack(side="left", padx=2)
 
         perbarui_view()
+
+    # ==========================================
+    # MILESTONE 3: SORT & SEARCH
+    # ==========================================
+
+    def _ambil_potongan_data(self, batas=None):
+        """Mengambil list pesanan dari Array M1."""
+        total = len(self.arr_pesanan)
+        n = total if batas is None else min(batas, total)
+        return [self.arr_pesanan.get(i) for i in range(n)]
+
+    def _tampilkan_form_sort(self, jenis_sort):
+        self._bersihkan_form()
+        nama_alg = "insertion sort, O(n²)" if jenis_sort == "INSERTION" else "merge sort, O(n log n)"
+
+        tk.Label(self.frame_input, text=f"Sort: {nama_alg}", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+
+        f_param = tk.Frame(self.frame_input)
+        f_param.pack(anchor="w", pady=4)
+
+        tk.Label(f_param, text="Jumlah baris diurutkan:").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        ent_jumlah = ttk.Entry(f_param, width=12)
+        ent_jumlah.insert(0, "1000" if jenis_sort == "INSERTION" else "4000")
+        ent_jumlah.grid(row=1, column=0, sticky="w", padx=(0, 8), pady=2)
+
+        tk.Label(f_param, text="Diurutkan menurut:").grid(row=0, column=1, sticky="w", padx=8)
+        cmb_kunci = ttk.Combobox(f_param, values=["oid", "harga", "selesai"], state="readonly", width=12)
+        cmb_kunci.set("harga")
+        cmb_kunci.grid(row=1, column=1, sticky="w", padx=8, pady=2)
+
+        def aksi_urutkan():
+            if not self.data_termuat:
+                messagebox.showwarning("Peringatan", "Silakan muat data CSV terlebih dahulu!")
+                return
+            try:
+                jml = int(ent_jumlah.get().strip())
+                kunci = cmb_kunci.get()
+                potongan = self._ambil_potongan_data(jml)
+
+                t0 = time.perf_counter()
+                if jenis_sort == "INSERTION":
+                    hasil, komp, pindah = insertion_sort(potongan, kunci)
+                    tag_log = "M3:insertion_sort"
+                else:
+                    hasil, komp, pindah = merge_sort(potongan, kunci)
+                    tag_log = "M3:merge_sort"
+                durasi = (time.perf_counter() - t0) * 1000
+
+                self.txt_output.delete("1.0", tk.END)
+                self.txt_output.insert(tk.END, f"{len(hasil):,} pesanan diurutkan menurut {kunci}.\n")
+                self.txt_output.insert(tk.END, f"{komp:,} perbandingan, {pindah:,} pemindahan.\n")
+                self.txt_output.insert(tk.END, "-" * 70 + "\n")
+                self.txt_output.insert(tk.END, f"{'#':<5} {'oid':<10} {'harga':<10} {'selesai':<10} {'resto':<18} {'menu'}\n")
+                self.txt_output.insert(tk.END, "-" * 70 + "\n")
+
+                for idx, p in enumerate(hasil[:20], start=1):
+                    selesai = getattr(p, "t_selesai_detik", "-") or "-"
+                    self.txt_output.insert(tk.END, f"{idx:<5} {p.oid:<10} {p.harga:<10,} {str(selesai):<10} {p.resto:<18} {p.menu}\n")
+
+                self._catat_log(tag_log, f"n={len(hasil)} ({kunci})", durasi)
+            except ValueError as ve:
+                messagebox.showerror("Ditolak", str(ve))
+            except Exception as e:
+                messagebox.showerror("Error", f"Gagal mengurutkan: {e}")
+
+        ttk.Button(f_param, text="URUTKAN", command=aksi_urutkan).grid(row=1, column=2, padx=10)
+
+    def _tampilkan_form_linear_search(self):
+        self._bersihkan_form()
+        tk.Label(self.frame_input, text="Search: linear search, O(n)", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(self.frame_input, text="Nomor pesanan (oid):").pack(anchor="w")
+        ent_oid = ttk.Entry(self.frame_input, width=25)
+        ent_oid.insert(0, "O-000010")
+        ent_oid.pack(anchor="w", pady=3)
+
+        def aksi_cari():
+            if not self.data_termuat:
+                messagebox.showwarning("Peringatan", "Silakan muat data CSV terlebih dahulu!")
+                return
+            target = ent_oid.get().strip()
+            semua_data = self._ambil_potongan_data()
+
+            t0 = time.perf_counter()
+            idx, ketemu, komp = linear_search(semua_data, target)
+            durasi = (time.perf_counter() - t0) * 1000
+
+            self.txt_output.delete("1.0", tk.END)
+            if ketemu:
+                self.txt_output.insert(tk.END, f"Ditemukan pada indeks {idx:,}.\n")
+                self.txt_output.insert(tk.END, f"{komp:,} perbandingan.\n")
+                self.txt_output.insert(tk.END, "-" * 50 + "\n")
+                self.txt_output.insert(tk.END, f"oid       : {ketemu.oid}\n")
+                self.txt_output.insert(tk.END, f"pelanggan : {ketemu.pelanggan}\n")
+                self.txt_output.insert(tk.END, f"resto     : {ketemu.resto}\n")
+                self.txt_output.insert(tk.END, f"menu      : {ketemu.menu}\n")
+                self.txt_output.insert(tk.END, f"harga     : Rp {ketemu.harga:,}\n")
+                self.txt_output.insert(tk.END, f"status    : {ketemu.status}\n")
+            else:
+                self.txt_output.insert(tk.END, f"Pesanan '{target}' TIDAK DITEMUKAN.\n")
+                self.txt_output.insert(tk.END, f"{komp:,} perbandingan telah dilakukan.\n")
+
+            self._catat_log("M3:linear_search", f"Cari {target}", durasi)
+
+        ttk.Button(self.frame_input, text="CARI", command=aksi_cari).pack(anchor="w", pady=5)
+
+    def _tampilkan_form_binary_search(self):
+        self._bersihkan_form()
+        tk.Label(self.frame_input, text="Search: binary search, O(log n)", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(self.frame_input, text="Nomor pesanan (oid):").pack(anchor="w")
+        ent_oid = ttk.Entry(self.frame_input, width=25)
+        ent_oid.insert(0, "O-000010")
+        ent_oid.pack(anchor="w", pady=3)
+
+        def aksi_cari_bin():
+            if not self.data_termuat:
+                messagebox.showwarning("Peringatan", "Silakan muat data CSV terlebih dahulu!")
+                return
+            target = ent_oid.get().strip()
+
+            if self.cache_terurut_oid is None or len(self.cache_terurut_oid) != len(self.arr_pesanan):
+                semua_data = self._ambil_potongan_data()
+                t_sort = time.perf_counter()
+                self.cache_terurut_oid, _, _ = merge_sort(semua_data, "oid")
+                self.waktu_bangun_oid_ms = (time.perf_counter() - t_sort) * 1000
+
+            t0 = time.perf_counter()
+            idx, ketemu, komp = binary_search(self.cache_terurut_oid, target)
+            durasi = (time.perf_counter() - t0) * 1000
+
+            self.txt_output.delete("1.0", tk.END)
+            self.txt_output.insert(tk.END, f"Daftar terurut oid dibangun sekali dengan merge sort, {self.waktu_bangun_oid_ms:.2f} ms.\n")
+            if ketemu:
+                self.txt_output.insert(tk.END, f"Ditemukan pada baris ke-{idx+1:,} dari {len(self.cache_terurut_oid):,} baris.\n")
+                self.txt_output.insert(tk.END, f"{komp:,} perbandingan, bandingkan dengan linear search.\n")
+                self.txt_output.insert(tk.END, "-" * 50 + "\n")
+                self.txt_output.insert(tk.END, f"oid       : {ketemu.oid}\n")
+                self.txt_output.insert(tk.END, f"pelanggan : {ketemu.pelanggan}\n")
+                self.txt_output.insert(tk.END, f"resto     : {ketemu.resto}\n")
+                self.txt_output.insert(tk.END, f"menu      : {ketemu.menu}\n")
+                self.txt_output.insert(tk.END, f"harga     : Rp {ketemu.harga:,}\n")
+                self.txt_output.insert(tk.END, f"status    : {ketemu.status}\n")
+            else:
+                self.txt_output.insert(tk.END, f"Pesanan '{target}' TIDAK DITEMUKAN ({komp} perbandingan).\n")
+
+            self._catat_log("M3:binary_search", f"Cari {target}", durasi)
+
+        ttk.Button(self.frame_input, text="CARI", command=aksi_cari_bin).pack(anchor="w", pady=5)
