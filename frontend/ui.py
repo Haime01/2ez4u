@@ -28,6 +28,9 @@ class App2EZ4U:
 
         self._buat_layout()
         self._set_mode_default()
+        # Otomatis load data CSV0.1 detik setelah jendela tampil
+        # Otomatis load data CSV 0.1 detik setelah jendela tampil
+        self.root.after(100, lambda: self._menu_load_data(auto_run=True))
 
     def _buat_layout(self):
         # 1. Header Banner
@@ -168,7 +171,7 @@ class App2EZ4U:
         self.txt_output.insert(tk.END, "Silakan muat data pesanan terlebih dahulu lewat menu 'LOAD DATA (CSV)'.\n")
 
     # ==================== OPERASI DATA ====================
-    def _menu_load_data(self):
+    def _menu_load_data(self, auto_run=False):
         for widget in self.frame_input.winfo_children():
             widget.destroy()
 
@@ -177,7 +180,7 @@ class App2EZ4U:
 
         tk.Label(self.frame_input, text="Batas Baris Data (contoh: 20000 atau kosongkan untuk semua):", bg="white").pack(anchor="w")
         ent_limit = ttk.Entry(self.frame_input, width=25)
-        ent_limit.insert(0, "20000")
+        ent_limit.insert(0, "")
         ent_limit.pack(anchor="w", pady=4)
 
         def proses_muat():
@@ -187,7 +190,7 @@ class App2EZ4U:
             self.txt_output.delete("1.0", tk.END)
             self.txt_output.insert(tk.END, f"Memuat data (Batas: {batas if batas else '200.000'})...\n")
             self.root.update()
-
+            self.cache_terurut_oid = None
             t0 = time.perf_counter()
             data = baca_csv_pesanan("data/pesanan.csv", batas=batas)
             durasi_baca = (time.perf_counter() - t0) * 1000
@@ -217,7 +220,8 @@ class App2EZ4U:
             self._catat_log("M1:LINKEDLIST", f"Append {len(data)} elemen", d_ll)
 
         ttk.Button(self.frame_input, text="MUAT SEKARANG", command=proses_muat).pack(anchor="w", pady=6)
-
+        if auto_run:
+            proses_muat()
     def _tampilkan_form_lihat(self, struktur):
         for widget in self.frame_input.winfo_children():
             widget.destroy()
